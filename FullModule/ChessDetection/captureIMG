@@ -1,0 +1,27 @@
+import numpy as np
+import cv2
+
+def capture_image():
+    cap = cv2.VideoCapture(0)
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            print("Failed to capture frame. Exiting...")
+            break
+
+        # Display the frame for the user to position the chessboard
+        cv2.imshow("Live Preview - Press 's' to Save Image", frame)
+
+        # Press 's' to save the frame
+        if cv2.waitKey(1) & 0xFF == ord('s'):
+            cv2.imwrite("chessboard.jpg", frame)
+            print("Image saved as 'chessboard.jpg'")
+            break
+
+        # Exit on 'q'
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            print("Exiting without saving...")
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()

@@ -1,0 +1,104 @@
+import cv2 as cv
+import numpy as np
+from matplotlib import pyplot as plt
+
+def sobel(src_image, kernel_size):
+    grad_x = cv.Sobel(src_image, cv.CV_16S, 1, 0, ksize=kernel_size, scale=1,
+                      delta=0, borderType=cv.BORDER_DEFAULT)
+    grad_y = cv.Sobel(src_image, cv.CV_16S, 0, 1, ksize=kernel_size, scale=1, 
+                      delta=0, borderType=cv.BORDER_DEFAULT)
+    abs_grad_x = cv.convertScaleAbs(grad_x)
+    abs_grad_y = cv.convertScaleAbs(grad_y)
+
+    grad = cv.addWeighted(abs_grad_x, 0.5, abs_grad_y, 0.5, 0)
+    return grad
+
+
+def capture_image():
+    cap = cv.VideoCapture(0)
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            print("Failed to capture frame. Exiting...")
+            break
+
+        cv.imshow("Live Preview - Press 's' to Save Image", frame)
+
+        if cv.waitKey(1) & 0xFF == ord('s'):
+            cv.imwrite("chessboard.jpg", frame)
+            print("Image saved as 'chessboard.jpg'")
+            break
+
+        if cv.waitKey(1) & 0xFF == ord('q'):
+            print("Exiting without saving...")
+            break
+
+    cap.release()
+    cv.destroyAllWindows()
+
+def process_image(src_image_path):
+    src_image = cv.imread(src_image_path)
+    src_image_rgb = cv.cvtColor(src_image, cv.COLOR_BGR2RGB)
+    src_gray = cv.cvtColor(src_image, cv.COLOR_BGR2GRAY)
+    
+    
+    blurred_image = cv.GaussianBlur(src_gray, (5, 5), 0)
+
+    edges = cv.Canny(blurred_image, 50, 150)
+    contours, _ = cv.findContours(edges, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+    
+    
+    contours = sorted(contours, key=cv.contourArea, reverse=True)
+    
+    chessboard_contour = None
+    for contour in contours:
+        perimeter = cv.arcLength(contour, True)
+        approx = cv.approxPolyDP(contour, 0.02 * perimeter, True)
+        
+        if len(approx) == 4:
+            chessboard_contour = approx
+            break
+    
+    if chessboard_contour is not None:
+        cv.drawContours(src_image_rgb, [chessboard_contour], -1, (0, 255, 0), 2)
+        
+        
+        points = np.float32([chessboard_contour[0][0], chessboard_contour[1][0], chessboard_contour[2][0], chessboard_contour[3][0]])
+        width = max(np.linalg.norm(points[0] - points[1]), np.linalg.norm(points[2] - points[3]))
+        height = max(np.linalg.norm(points[0] - points[3]), np.linalg.norm(points[1] - points[2]))
+        
+        
+        dst_points = np.float32([[0, 0], [width-1, 0], [width-1, height-1], [0, height-1]])
+        
+        
+        matrix = cv.getPerspectiveTransform(points, dst_points)
+        warped_image = cv.warpPerspective(src_image_rgb, matrix, (int(width), int(height)))
+
+
+        square_size = int(width / 8)  
+        for i in range(1, 8):
+            cv.line(warped_image, (i * square_size, 0), (i * square_size, int(height)), (0, 255, 0), 2)
+            cv.line(warped_image, (0, i * square_size), (int(width), i * square_size), (0, 255, 0), 2)
+
+        
+        for i in range(8):
+            for j in range(8):
+                label = f"{chr(97+j)}{8-i}"
+                cv.putText(warped_image, label, (j * square_size + 10, i * square_size + 30), cv.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+        
+        return warped_image
+    else:
+        print("Chessboard contour not found!")
+        return src_image_rgb
+
+def main():
+    #capture_image()
+    image_path = "cal2.jpg"
+    result_image = process_image(image_path)
+
+    cv.imshow("Detected Chessboard Squares", result_image)
+    cv.waitKey(0)
+    cv.destroyAllWindows()
+
+if __name__ == "__main__":
+    main()

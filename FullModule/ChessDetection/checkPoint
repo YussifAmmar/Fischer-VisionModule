@@ -1,0 +1,109 @@
+import numpy as np
+import cv2 as cv
+
+# 1. Function for camera calibration (uses a chessboard for calibration)
+def calibrate_camera(chessboard_size, square_size, calibration_images):
+    obj_points = []  # 3D points in real-world space
+    img_points = []  # 2D points in the image plane
+
+    # Prepare the 3D points for the chessboard
+    objp = np.zeros((chessboard_size[0] * chessboard_size[1], 3), np.float32)
+    objp[:, :2] = np.mgrid[0:chessboard_size[0], 0:chessboard_size[1]].T.reshape(-1, 2)
+    objp *= square_size  # Scale by the size of a square
+
+    valid_images = 0  # Counter for successful detections
+    for img_path in calibration_images:
+        image = cv.imread(img_path)
+        if image is None:
+            print(f"Image {img_path} not found. Skipping...")
+            continue
+
+        gray = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
+        ret, corners = cv.findChessboardCorners(gray, chessboard_size)
+
+        if ret:
+            valid_images += 1
+            img_points.append(corners)
+            obj_points.append(objp)
+        else:
+            print(f"Chessboard corners not detected in {img_path}. Skipping...")
+
+    if valid_images == 0:
+        raise ValueError("No valid calibration images found. Ensure chessboard images are clear.")
+
+    # Perform camera calibration
+    ret, mtx, dist, rvecs, tvecs = cv.calibrateCamera(obj_points, img_points, gray.shape[::-1], None, None)
+    return mtx, dist
+
+# 2. Function to estimate the pose of the chessboard
+def estimate_pose(gray_image, chessboard_size, mtx, dist):
+    objp = np.zeros((chessboard_size[0] * chessboard_size[1], 3), np.float32)
+    objp[:, :2] = np.mgrid[0:chessboard_size[0], 0:chessboard_size[1]].T.reshape(-1, 2)
+
+    ret, corners = cv.findChessboardCorners(gray_image, chessboard_size)
+    if ret:
+        corners = cv.cornerSubPix(gray_image, corners, (11, 11), (-1, -1), 
+                                  criteria=(cv.TERM_CRITERIA_EPS + cv.TERM_CRITERIA_MAX_ITER, 30, 0.1))
+        ret, rvec, tvec = cv.solvePnP(objp, corners, mtx, dist)
+        return rvec, tvec, corners
+    else:
+        raise ValueError("Chessboard corners not detected for pose estimation.")
+
+# 3. Transform pixel coordinates to real-world coordinates
+def pixel_to_world(pixel_point, rvec, tvec, mtx, dist):
+    rmat, _ = cv.Rodrigues(rvec)  # Convert rotation vector to matrix
+    inv_rmat = np.linalg.inv(rmat)
+    inv_mtx = np.linalg.inv(mtx)
+
+    # Undistort the pixel point
+    normalized_pixel = np.dot(inv_mtx, np.array([pixel_point[0], pixel_point[1], 1.0]))
+    world_point = np.dot(inv_rmat, normalized_pixel - tvec.flatten())
+    return world_point
+
+# Existing functions
+def find_chessboard_corners(image_path):
+    image = cv.imread(image_path)
+    if image is None:
+        raise FileNotFoundError(f"Image {image_path} not found.")
+
+    gray_image = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
+    chessboard_size = (7, 7)  # 7x7 internal corners for an 8x8 chessboard
+
+    ret, corners = cv.findChessboardCorners(gray_image, chessboard_size)
+    if ret:
+        corners = cv.cornerSubPix(gray_image, corners, (11, 11), (-1, -1), 
+                                  criteria=(cv.TERM_CRITERIA_EPS + cv.TERM_CRITERIA_MAX_ITER, 30, 0.1))
+        cv.drawChessboardCorners(image, chessboard_size, corners, ret)
+
+        for i, corner in enumerate(corners):
+            x, y = corner.ravel()
+            cv.putText(image, str(i+1), (int(x) + 5, int(y) + 5), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+
+        cv.imshow('Chessboard Corners with Numbers', image)
+        cv.waitKey(0)
+        cv.destroyAllWindows()
+
+        return gray_image, corners
+    else:
+        raise ValueError("Chessboard corners not detected in the image.")
+
+# Integration
+calibration_images = ['board2.jpg', 'cal2.jpg']  # Replace with your calibration images
+square_size = 1.5  # Size of each square in real-world units (e.g., cm)
+
+try:
+    board_size=(7,7)
+    mtx, dist = calibrate_camera(board_size, square_size, calibration_images)
+
+    image_path = 'board2.jpg'  # Replace with your test chessboard image
+    gray_image, corners = find_chessboard_corners(image_path)
+
+    if corners is not None:
+        rvec, tvec, _ = estimate_pose(gray_image, board_size, mtx, dist)
+
+        specific_corner = corners[5].ravel()  # Replace with the desired corner index
+        world_coordinates = pixel_to_world(specific_corner, rvec, tvec, mtx, dist)
+        print(f"Real-world coordinates of the corner: {world_coordinates}")
+
+except Exception as e:
+    print(f"Error: {e}")
